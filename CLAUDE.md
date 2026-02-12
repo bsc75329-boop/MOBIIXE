@@ -4,22 +4,25 @@ This file provides guidance for AI assistants working with the MOBIIXE (모빅�
 
 ## Project Overview
 
-MOBIIXE is a newly initialized project. The repository is in its early stages with no source code, build system, or configuration files established yet.
+MOBIIXE (모빅셀 코드) is an Arduino-based motor control project. L298N 모터 드라이버를 사용하여 DC 모터를 제어합니다.
 
 ## Repository Structure
 
 ```
 MOBIIXE/
 ├── .git/
-├── CLAUDE.md        # This file - AI assistant guidance
-└── README.md        # Project description
+├── motor_control/
+│   ├── motor_control.ino   # 아두이노 모터 제어 스케치
+│   └── HARDWARE.md         # 하드웨어 구성도 및 배선 안내
+├── CLAUDE.md               # AI 어시스턴트 가이드 (이 파일)
+└── README.md               # 프로젝트 설명
 ```
 
 ## Current State
 
-- **Status**: Initial scaffold - no implementation exists yet
-- **Language/Framework**: Not yet determined
-- **Build System**: Not yet configured
+- **Status**: Arduino 모터 제어 코드 구현됨
+- **Language/Framework**: Arduino (C/C++)
+- **Build System**: Arduino IDE 또는 Arduino CLI
 - **Tests**: Not yet configured
 - **CI/CD**: Not yet configured
 - **Linting/Formatting**: Not yet configured
