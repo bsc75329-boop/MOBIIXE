@@ -42,6 +42,12 @@ When setting up this project, follow these conventions:
 - Include environment variable templates (`.env.example`) rather than committing secrets
 - Never commit credentials, API keys, or sensitive configuration
 
+### Code Comments
+
+- **All code comments must be written in Korean (한글)**
+- 주석은 명확하고 간결하게 작성할 것
+- 함수, 클래스, 모듈 수준의 설명도 한글로 작성
+
 ### Code Quality
 
 - Set up linting and formatting tools appropriate for the chosen language
