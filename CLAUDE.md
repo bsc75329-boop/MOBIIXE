@@ -15,6 +15,7 @@ MOBIIXE/
 │   ├── motor_control.ino   # 아두이노 모터 제어 스케치
 │   └── HARDWARE.md         # 하드웨어 구성도 및 배선 안내
 ├── CLAUDE.md               # AI 어시스턴트 가이드 (이 파일)
+├── GETTING_STARTED.md      # 깃허브 초보자용 사용 가이드
 └── README.md               # 프로젝트 설명
 ```
 
