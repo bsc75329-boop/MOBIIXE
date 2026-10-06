@@ -25,7 +25,8 @@
  *                     ↓
  *       ② 주행     패치를 보며 걷는다. 빗나가면 서서 방향을 고친다
  *                     ↓
- *       ③ 찾기     패치를 놓치면 제자리에서 돌며 다시 찾는다
+ *       ③ 찾기     패치를 놓치면 전진하며 돌아 다시 찾는다
+ *                  (v13: 앞으로 간 거리를 세어 트랙 밖으로 안 나가게 한다)
  *                     ↓
  *       ④ 마무리   결승선을 지나면 눈감고 조금 더 간다
  *                     ↓
@@ -345,6 +346,16 @@
 #define KEY_LEFT     0x008002     // 전진하면서 좌  (한 번 보내면 한 번 돈다)
 #define KEY_RIGHT    0x020002   // 전진하면서 우 
 #define KEY_STOP     0x001010     // 정지
+
+/*  제자리 턴 키 (v13).  있으면 1 로 켜고 번호를 넣는다.  없으면 0.
+ *
+ *  평소 방향 고치기는 위의 "전진하면서 턴" 만 쓴다. (빠르다)
+ *  제자리 턴은 패치를 놓치고, 눈감고 간 거리가 BLIND_MAX_MM 을 넘었을 때만
+ *  쓴다.  더 앞으로 가면 트랙 밖으로 나갈 수 있을 때의 비상용이다.
+ *  0 이면 그때 그냥 서서 기다린다.  ( [패치 찾기] 설명 참고 )  */
+#define USE_SPIN_KEY        0
+#define KEY_SPIN_LEFT  0x000000   // 제자리 좌턴  ★ 모션 편집기에서 확인해서 넣기
+#define KEY_SPIN_RIGHT 0x000000   // 제자리 우턴
 //ㅡㅡㅡㅡㅡㅡㅡㅡㅡㅡㅡㅡㅡㅡㅡㅡㅡㅡㅡㅡㅡㅡㅡㅡㅡㅡㅡㅡㅡㅡㅡㅡㅡㅡㅡㅡㅡㅡㅡㅡㅡㅡ
 #define USE_STOP_KEY        1     // 1 = 설 때 정지키도 보냄
 #define ROBOT_ID            1     // 국번
@@ -462,6 +473,8 @@
 #define FALL_CENTER_PX     90     // 중심에서 이 안쪽에 있던 패치가 사라지면 의심
 #define FALL_GONE_MS      150UL   // 마지막으로 본 지 이 시간 안에 사라져야 "갑자기"
 #define FALL_CONFIRM_MS   600UL   // 이만큼 계속 안 보이면 넘어짐으로 확정
+#define STAND_SEE_MS     1000UL   // 넘어짐 대기 중 패치가 이만큼 계속 보이면 바로 복귀
+                                  // (색이 잠깐 안 잡힌 걸 넘어짐으로 착각했을 때 손해를 줄인다)
 
 /*  MPU6050 에 쓰는 값  */
 #define IMU_FALL_DEG       55     // 이만큼 넘게 기울면 넘어짐
@@ -470,9 +483,30 @@
 #define IMU_UP_MS        1500UL   // 선 상태가 이만큼 이어져야 다 일어난 것
 
 
-/*  ── 패치 찾기 (v11 새 기능) ──────────────────────────────────────────
+/*  ── 패치 찾기 (v13 : 전진하며 턴하는 로봇용으로 다시 만듦) ─────────────
  *
- *  턴을 몇 번 할지 정해 넣지 않는다.  로봇이 스스로 잰다.
+ *  이 로봇의 턴은 "전진하면서 턴" 이다.  턴 한 번마다 앞으로도 간다.
+ *  v12 처럼 패치를 찾느라 한쪽으로 20번, 반대로 40번 돌면
+ *  로봇은 제자리가 아니라 큰 원을 그리며 걸어가 트랙 밖으로 나간다.
+ *
+ *  그래서 v13 의 찾기는
+ *   ① 찾는 동안에도 카메라를 계속 본다.  보이는 순간 바로 멈춘다 (덜 돈다)
+ *   ② 화면 가운데서 사라졌으면 (방향은 맞았다) 턴하지 않고 잠깐 직진한다
+ *   ③ 좌/우 끝으로 사라졌으면 그쪽으로 전진턴
+ *   ④ 패치를 못 본 채 앞으로 간 거리(눈감은 거리)를 계속 센다.
+ *      BLIND_MAX_MM 을 넘으면 더 이상 전진턴을 하지 않는다.
+ *        - 제자리 턴 키가 있으면  →  제자리 턴으로만 찾는다
+ *        - 없으면                →  선다.  (트랙 밖으로 나가는 것보다 낫다)
+ *   ⑤ 찾기에 실패해도 v12 처럼 "눈감고 직진" 하지 않는다.
+ *
+ *  ★ 직접 재서 넣을 것 : TURN_STEP_MM
+ *     전진턴을 10번 보내고, 로봇이 앞으로 간 거리를 줄자로 재서 / 10
+ *  ────────────────────────────────────────────────────────────────────── */
+#define TURN_STEP_MM       60     // 전진턴 한 번에 앞으로 가는 거리 (mm)
+#define BLIND_MAX_MM      500     // 패치를 못 보고 이만큼 넘게 가면 전진턴 금지
+#define LOST_STRAIGHT_MS  800UL   // 가운데서 사라졌을 때 턴 없이 직진할 시간
+
+/*  턴 한 번이 화면에서 몇 픽셀인지는 로봇이 스스로 잰다. (v11)
  *
  *   ① 턴을 보내기 직전 패치의 화면 위치를 기억한다
  *   ② 턴이 끝난 뒤 위치를 다시 잰다
@@ -555,6 +589,12 @@
 #endif
 #if (WALK_SPEED < 10) || (WALK_SPEED > 2000)
   #error "[9] WALK_SPEED 가 이상합니다."
+#endif
+#if (TURN_STEP_MM < 0) || (TURN_STEP_MM > 500)
+  #error "TURN_STEP_MM 이 이상합니다. 0~500 사이여야 합니다."
+#endif
+#if (BLIND_MAX_MM < 100) || (BLIND_MAX_MM > 3000)
+  #error "BLIND_MAX_MM 이 이상합니다. 100~3000 사이여야 합니다."
 #endif
 #if (GETUP_MS < 1000) || (GETUP_MS >= FALL_MAX_MS)
   #error "GETUP_MS 는 1000 이상, FALL_MAX_MS 보다 작아야 합니다."
@@ -658,6 +698,9 @@ uint8_t  g_seekLimit = SEEK_MIN;
 uint8_t  g_seekPhase = 1;
 uint8_t  g_seeCnt    = 0;
 bool     g_seekFromHold = false;
+uint32_t g_straightUntil = 0;     // 이 시각까지 턴 없이 직진 (가운데서 놓친 경우)
+long     g_blindMm  = 0;          // 패치를 마지막으로 제대로 본 뒤 앞으로 간 거리 (추정)
+bool     g_spinNow  = false;      // 이번 턴이 제자리 턴인가 (화면 표시용)
 
 /*  넘어짐  */
 uint32_t g_fallenMs    = 0;
@@ -672,6 +715,7 @@ bool     g_vEdge         = false; // 이번 장 패치가 위/아래 끝에 걸�
 bool     g_fallSuspect   = false; // 가운데서 갑자기 사라졌다 (넘어짐 의심)
 uint32_t g_fallSuspectMs = 0;
 bool     g_fallByCam     = false; // 카메라 짐작으로 넘어짐에 들어왔다
+uint32_t g_standSeeMs    = 0;     // 넘어짐 대기 중 패치가 계속 보이기 시작한 시각
 
 #if (USE_IMU_FALL == 1)
 bool     g_imuOk     = false;
@@ -844,6 +888,36 @@ void sendMotion(unsigned long code, bool showHex)
     }
     Serial.println();
   }
+}
+
+
+/* ==========================================================================
+ *  턴 보내기 (v13)
+ *
+ *  이 로봇의 KEY_LEFT / KEY_RIGHT 는 "전진하면서 턴" 이라 앞으로도 간다.
+ *  그래서 턴을 보낼 때마다 눈감은 거리에 더해 둔다.
+ *
+ *  allowSpin = true 이고 눈감은 거리가 다 찼으면 제자리 턴으로 바꾼다.
+ *  돌릴 수 없으면 (제자리 턴 키도 없음) false 를 돌려준다.
+ * ========================================================================== */
+
+bool blindFull() { return (g_blindMm >= (long)BLIND_MAX_MM); }
+
+bool sendTurn(int8_t dir, bool allowSpin)
+{
+  if (allowSpin && blindFull()) {
+#if (USE_SPIN_KEY == 1)
+    sendMotion((dir > 0) ? KEY_SPIN_RIGHT : KEY_SPIN_LEFT, false);
+    g_spinNow = true;
+    return true;
+#else
+    return false;
+#endif
+  }
+  sendMotion((dir > 0) ? KEY_RIGHT : KEY_LEFT, false);
+  g_blindMm += TURN_STEP_MM;
+  g_spinNow = false;
+  return true;
 }
 
 
@@ -1033,6 +1107,7 @@ void updateVision()
   g_err  = ((long)(g_fx - g_centerX) * (long)PATCH_MM) / (long)g_fw;
   g_lastDist = g_dist;
   g_valid = true;
+  g_blindMm = 0;                    // 패치를 제대로 봤다 = 위치를 다시 안다
   g_lastSide = (g_fx > g_centerX) ? +1 : -1;
 
   /*  턴을 보내놓고 결과를 기다리던 중이면 여기서 잰다  */
@@ -1144,6 +1219,9 @@ uint8_t seekLimit(int8_t dir)
 
 void startSeek(bool fromHold)
 {
+  /*  가운데서 사라졌나 (방향은 맞았는데 색을 잠깐 못 잡은 것)  */
+  bool midLoss = !fromHold && g_lastSeenMid && (millis() - g_lastSeenMs) < 1000UL;
+
   gotoState(ST_SEEK);
   g_walking       = false;
   g_seekFromHold  = fromHold;
@@ -1152,6 +1230,13 @@ void startSeek(bool fromHold)
   g_seekCnt       = 0;
   g_seeCnt        = 0;
   g_seekLimit     = seekLimit(g_seekDir);
+  g_straightUntil = 0;
+
+  if (midLoss) {
+    g_straightUntil = millis() + LOST_STRAIGHT_MS;
+    g_walking = true;
+    Serial.println(F("   패치가 화면 가운데서 사라졌습니다. 방향은 맞으니 잠깐 직진하며 봅니다."));
+  }
 
   Serial.print(F("   패치를 놓쳤습니다. 마지막에 "));
   Serial.print((g_seekDir > 0) ? F("오른쪽") : F("왼쪽"));
@@ -1161,6 +1246,8 @@ void startSeek(bool fromHold)
   Serial.print((g_seekDir > 0) ? g_dxRight : g_dxLeft);
   Serial.print(F("픽셀"));
   Serial.println(g_dxKnown ? F(", 실측)") : F(", 아직 안 재봄)"));
+  Serial.print(F("   눈감은 거리 "));  Serial.print(g_blindMm);
+  Serial.print(F(" / "));  Serial.print((long)BLIND_MAX_MM);  Serial.println(F("mm"));
 }
 
 
@@ -1179,6 +1266,7 @@ void enterFallen()
   gotoState(ST_FALLEN);
   g_walking  = false;
   g_fallenMs = millis();
+  g_standSeeMs = 0;
   Serial.println(F("   로봇이 넘어졌습니다. 일어날 때까지 아무 키도 안 보냅니다."));
   if (g_fallByCam) {
     Serial.print(F("   (카메라 짐작 : 패치가 가운데/위아래로 갑자기 사라짐)  "));
@@ -1343,9 +1431,19 @@ void serviceFall()
     }
   }
 
-  /*  일어날 시간을 다 기다렸다  */
-  if (g_state == ST_FALLEN && g_fallByCam && millis() - g_fallenMs >= GETUP_MS) {
-    recoverFallen();
+  if (g_state == ST_FALLEN && g_fallByCam) {
+    /*  패치가 흔들림 없이 계속 보인다 = 이미 서 있다 (또는 넘어진 게 아니었다)  */
+    if (g_valid) { if (g_standSeeMs == 0) g_standSeeMs = millis(); }
+    else           g_standSeeMs = 0;
+
+    if (g_standSeeMs && millis() - g_standSeeMs >= STAND_SEE_MS) {
+      Serial.println(F("\n   패치가 계속 보입니다 - 서 있는 것으로 봅니다"));
+      recoverFallen();
+    }
+    /*  일어날 시간을 다 기다렸다  */
+    else if (millis() - g_fallenMs >= GETUP_MS) {
+      recoverFallen();
+    }
   }
 #endif
 }
@@ -1468,8 +1566,8 @@ void doTurn()
   /*  턴 크기를 재기 위해 지금 위치를 기억해 둔다  */
   g_xBefore = g_fx;
 
-  if (g_err > 0) { Serial.print(F(">> 우턴  (빗나감 +")); sendMotion(KEY_RIGHT, false); g_measDir = +1; }
-  else           { Serial.print(F(">> 좌턴  (빗나감 "));  sendMotion(KEY_LEFT,  false); g_measDir = -1; }
+  if (g_err > 0) { Serial.print(F(">> 전진우턴  (빗나감 +")); sendTurn(+1, false); g_measDir = +1; }
+  else           { Serial.print(F(">> 전진좌턴  (빗나감 "));  sendTurn(-1, false); g_measDir = -1; }
   Serial.print(g_err);  Serial.println(F("mm)"));
 
   g_holdUntil = millis() + TURN_WAIT_MS;
@@ -1490,7 +1588,7 @@ void edgeTurn()
   Serial.print((g_edge > 0) ? F("오른쪽") : F("왼쪽"));
   Serial.println(F(" 끝에 걸침 - 방향만 보고 되돌림"));
 
-  sendMotion((g_edge > 0) ? KEY_RIGHT : KEY_LEFT, false);
+  sendTurn((g_edge > 0) ? +1 : -1, false);
 
   g_holdUntil = millis() + TURN_WAIT_MS;
   avgReset();
@@ -1568,17 +1666,27 @@ void runRun()
 
 void runSeek()
 {
-  if (millis() < g_holdUntil) return;
-
-  /*  찾았다  */
+  /*  찾았다.  v13 : 턴 동작 중에도 카메라를 보므로, 보이는 즉시 더 돌지 않는다  */
   if (g_seenNow) {
     if (++g_seeCnt >= SEEK_CONFIRM_N) {
       Serial.println(F("   패치를 다시 찾았습니다 - 주행 복귀"));
+      uint32_t keep = g_holdUntil;      // 보내 둔 턴 동작은 끝까지 기다린다
       gotoState(ST_RUN);
+      g_holdUntil = keep;
     }
     return;
   }
   g_seeCnt = 0;
+
+  /*  가운데서 놓친 경우 : 먼저 턴 없이 직진  */
+  if (g_straightUntil) {
+    if (millis() < g_straightUntil && !blindFull()) return;
+    g_straightUntil = 0;
+    g_walking = false;
+    Serial.println(F("   직진으로는 안 보입니다 - 돌며 찾습니다"));
+  }
+
+  if (millis() < g_holdUntil) return;
 
   /*  이 방향은 다 훑었다  */
   if (g_seekCnt >= g_seekLimit) {
@@ -1587,6 +1695,7 @@ void runSeek()
       g_seekPhase = 2;
       g_seekDir   = -g_seekDir;
       g_seekCnt   = 0;
+      /*  이미 돈 만큼 되돌아오고 + 반대쪽을 그만큼 더 본다  */
       g_seekLimit = (uint8_t)(seekLimit(g_seekDir) * 2);
       if (g_seekLimit > SEEK_MAX * 2) g_seekLimit = SEEK_MAX * 2;
 
@@ -1597,25 +1706,20 @@ void runSeek()
       return;
     }
 
-    /*  2단계도 실패  */
-    if (g_seekFromHold) {
-      Serial.println(F("   패치를 못 찾았습니다 - 다시 서서 기다립니다"));
-      enterHold(F("패치 못 찾음"));
-      return;
-    }
-    Serial.println(F("   패치를 못 찾았습니다 - 멈추지 않고 앞으로 갑니다"));
-    long mm = (g_lastDist > (long)FINISH_MM)
-              ? (g_lastDist - (long)FINISH_MM + (long)CROSS_MM)
-              : (long)CROSS_MM;
-    startFinish(mm, true);
+    /*  2단계도 실패.  v13 : 눈감고 직진하지 않는다 (방향을 모르면 트랙 밖으로 나간다)  */
+    enterHold(F("패치 못 찾음 - 트랙을 벗어나지 않도록 섭니다"));
     return;
   }
 
-  /*  한 번 더 돈다  */
-  sendMotion((g_seekDir > 0) ? KEY_RIGHT : KEY_LEFT, false);
+  /*  한 번 더 돈다.  눈감은 거리가 다 찼으면 제자리 턴, 그것도 없으면 선다  */
+  if (!sendTurn(g_seekDir, true)) {
+    Serial.print(F("   눈감은 거리 "));  Serial.print(g_blindMm);
+    Serial.println(F("mm - 더 가면 트랙을 벗어날 수 있습니다"));
+    enterHold(F("눈감은 거리 초과 (제자리 턴 키 없음)"));
+    return;
+  }
   g_seekCnt++;
   g_holdUntil = millis() + TURN_WAIT_MS;
-  avgReset();
 }
 
 
@@ -1630,7 +1734,12 @@ void runFinish()
     gotoState(ST_RUN);
     return;
   }
-  if (millis() >= g_finishUntil) enterHold(F("주행 완료"));
+  if (millis() >= g_finishUntil) {
+    /*  결승선을 지났다.  패치가 코앞이므로 여기서 전진턴으로 찾으면 안 된다.
+     *  눈감은 거리를 꽉 채워 두면 서 있는 동안 전진턴을 하지 않는다.  */
+    if (g_blindMm < (long)BLIND_MAX_MM) g_blindMm = BLIND_MAX_MM;
+    enterHold(F("주행 완료"));
+  }
 }
 
 
@@ -1651,8 +1760,20 @@ void runHold()
 
   if (g_seenNow) { g_holdLostMs = millis(); return; }
 
-  /*  한참 안 보이면 방향이 틀어진 것이므로 찾아본다  */
-  if (millis() - g_holdLostMs >= HOLD_LOST_MS) startSeek(true);
+  /*  한참 안 보이면 방향이 틀어진 것이므로 찾아본다.
+   *  단, 눈감은 거리가 다 찼고 제자리 턴 키도 없으면 돌지 않는다.
+   *  (전진턴으로 찾으면 계속 앞으로 가서 트랙 밖으로 나간다)  */
+  if (millis() - g_holdLostMs < HOLD_LOST_MS) return;
+#if (USE_SPIN_KEY == 0)
+  if (blindFull()) {
+    if (tipChanged(2)) {
+      Serial.println(F("   눈감은 거리를 다 써서 더 찾지 않고 서 있습니다."));
+      Serial.println(F("   로봇을 패치 쪽으로 돌려 주거나 START 에 다시 놓으세요."));
+    }
+    return;
+  }
+#endif
+  startSeek(true);
 }
 
 
@@ -1682,13 +1803,14 @@ void runFallen()
 
 void serviceWalk()
 {
-  if (g_state != ST_RUN && g_state != ST_FINISH) return;
+  if (g_state != ST_RUN && g_state != ST_FINISH && g_state != ST_SEEK) return;
   if (!g_walking) return;
   if (millis() < g_holdUntil) return;
   if (millis() - g_lastSendMs < WALK_KEY_MS) return;
 
   g_lastSendMs = millis();
   sendMotion(KEY_FORWARD, false);
+  g_blindMm += ((long)WALK_SPEED * WALK_KEY_MS) / 1000L;
 }
 
 
@@ -1714,10 +1836,16 @@ void printRun()
     }
 
     case ST_SEEK:
-      Serial.print((g_seekDir > 0) ? F("오른쪽") : F("왼쪽"));
-      Serial.print(F("으로 도는 중  "));
-      Serial.print(g_seekCnt);  Serial.print('/');  Serial.print(g_seekLimit);
-      Serial.print(F("  ("));  Serial.print(g_seekPhase);  Serial.println(F("단계)"));
+      if (g_straightUntil) {
+        Serial.print(F("가운데서 놓침 - 직진하며 찾는 중"));
+      } else {
+        Serial.print((g_seekDir > 0) ? F("오른쪽") : F("왼쪽"));
+        Serial.print(g_spinNow ? F("으로 제자리턴  ") : F("으로 전진턴  "));
+        Serial.print(g_seekCnt);  Serial.print('/');  Serial.print(g_seekLimit);
+        Serial.print(F("  ("));  Serial.print(g_seekPhase);  Serial.print(F("단계)"));
+      }
+      Serial.print(F("  눈감은 거리 "));  Serial.print(g_blindMm);
+      Serial.print('/');  Serial.print((long)BLIND_MAX_MM);  Serial.println(F("mm"));
       break;
 
     case ST_FALLEN:
@@ -1869,6 +1997,13 @@ void setup()
   Serial.print(F("더 갈 거리  : "));    Serial.print((long)CROSS_MM);   Serial.println(F("mm"));
   Serial.print(F("패치 여유   : "));    Serial.print((long)FINISH_MM - (long)CROSS_MM);
   Serial.println(F("mm  (300 이상이면 안전)"));
+  Serial.print(F("눈감은 거리 : 최대 "));  Serial.print((long)BLIND_MAX_MM);
+  Serial.print(F("mm  (전진턴 1회 "));     Serial.print((long)TURN_STEP_MM);
+#if (USE_SPIN_KEY == 1)
+  Serial.println(F("mm, 넘으면 제자리턴)"));
+#else
+  Serial.println(F("mm, 넘으면 섬)"));
+#endif
   Serial.print(F("다시출발    : 패치가 "));  Serial.print((long)RESTART_MM);
   Serial.println(F("mm 보다 멀리 보이면"));
 #if (USE_ROBOT_FEEDBACK == 1)
@@ -1906,7 +2041,10 @@ void loop()
 
   /*  턴 대기 중에는 카메라를 읽지 않는다.
    *  도는 중의 값이 평균에 섞이면 안 되기 때문이다.  */
-  if (millis() >= g_holdUntil) updateVision();
+  /*  v13 : 찾는 중에는 턴 동작 중에도 카메라를 본다.
+   *        재는 게 아니라 "보이나 안 보이나" 만 보면 되기 때문이다.
+   *        보이는 즉시 멈추면 덜 돌고, 그만큼 덜 앞으로 간다.  */
+  if (millis() >= g_holdUntil || g_state == ST_SEEK) updateVision();
 
   serviceFall();
 
