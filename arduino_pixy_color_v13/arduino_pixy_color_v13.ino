@@ -342,27 +342,70 @@
  *  ────────────────────────────────────────────────────────────────────── */
  //ㅡㅡㅡㅡㅡㅡㅡㅡㅡㅡㅡㅡㅡㅡㅡㅡㅡㅡㅡㅡㅡㅡㅡㅡㅡㅡㅡㅡㅡㅡㅡㅡㅡㅡㅡㅡㅡㅡㅡㅡㅡ
  //플루토 키값
-#define KEY_FORWARD  0x000002     // 전진 (키를 계속 보내야 걷는다)
-#define KEY_LEFT     0x008002     // 전진하면서 좌  (한 번 보내면 한 번 돈다)
-#define KEY_RIGHT    0x020002   // 전진하면서 우 
-#define KEY_STOP     0x001010     // 정지
+#define KEY_FORWARD  0x000002     // 전진달리기     (REPEAT 100, 누르고 있는 동안 걷는다)
+#define KEY_LEFT     0x008002     // 전진달리기_왼  (REPEAT 50,  누르고 있는 동안 전진좌턴)
+#define KEY_RIGHT    0x020002     // 전진달리기_오  (REPEAT 50,  누르고 있는 동안 전진우턴)
+#define KEY_STOP     0x001000     // 기본 자세
+                                  // ★ v12 의 0x001010 은 메인보드에 그런 모션이 없었다.
+                                  //   메인보드 코드의  기본@0x001000  에 맞췄다.
 
-/*  제자리 턴 키 (v13).  있으면 1 로 켜고 번호를 넣는다.  없으면 0.
+/*  제자리 턴 키 (v13).  메인보드 코드의  왼쪽턴@0x000008 / 오른쪽턴@0x000020.
  *
  *  평소 방향 고치기는 위의 "전진하면서 턴" 만 쓴다. (빠르다)
  *  제자리 턴은 패치를 놓치고, 눈감고 간 거리가 BLIND_MAX_MM 을 넘었을 때만
  *  쓴다.  더 앞으로 가면 트랙 밖으로 나갈 수 있을 때의 비상용이다.
- *  0 이면 그때 그냥 서서 기다린다.  ( [패치 찾기] 설명 참고 )  */
-#define USE_SPIN_KEY        0
-#define KEY_SPIN_LEFT  0x000000   // 제자리 좌턴  ★ 모션 편집기에서 확인해서 넣기
-#define KEY_SPIN_RIGHT 0x000000   // 제자리 우턴
+ *  0 이면 그때 그냥 서서 기다린다.  ( [패치 찾기] 설명 참고 )
+ *  ★ 규정 : 옆으로 걷는 동작이면 실격.  정말 제자리에서 도는지 눈으로 확인할 것.  */
+#define USE_SPIN_KEY        1
+#define KEY_SPIN_LEFT  0x000008   // 왼쪽턴    (한 번 누르면 한 번)
+#define KEY_SPIN_RIGHT 0x000020   // 오른쪽턴
+
+/*  ★ 절대 보내면 안 되는 키 : 0x000800 (모터풀기 - 로봇이 주저앉는다)  */
 //ㅡㅡㅡㅡㅡㅡㅡㅡㅡㅡㅡㅡㅡㅡㅡㅡㅡㅡㅡㅡㅡㅡㅡㅡㅡㅡㅡㅡㅡㅡㅡㅡㅡㅡㅡㅡㅡㅡㅡㅡㅡㅡ
 #define USE_STOP_KEY        1     // 1 = 설 때 정지키도 보냄
 #define ROBOT_ID            1     // 국번
 #define SPEED_OVR         100     // speed override
 
-/*  전진키를 몇 ms 마다 보낼지. 로봇이 계속 걷게 하는 주기  */
+/*  ── 키를 "누르고 있기" 처럼 보내기 (v13) ─────────────────────────────
+ *
+ *  메인보드 코드를 보면 전진/전진턴 모션은
+ *      MOTIONSTOP ENDSTOP  +  REPEAT ~ REPEATEND
+ *  구조다.  조종기 키를 누르고 있는 동안 반복하고, 키를 떼면
+ *  지금 하던 동작(ZMOVE) 까지만 마치고 멈춘다.
+ *  아두이노는 조종기처럼
+ *      누르기   = 그 키를 바로 한 번 보낸다
+ *      누르고 있기 = 같은 키를 WALK_KEY_MS 마다 계속 보낸다
+ *      떼기     = 보내기를 멈춘다  (메인보드가 "뗐다" 고 본다)
+ *  로 흉내 낸다.
+ *
+ *  USE_HOLD_KEYS = 1 이면
+ *    - 방향 고치기 : 카메라를 계속 보면서 전진턴 키를 "누르고 있다가"
+ *                    패치가 가운데 오면 바로 전진키로 바꾼다.
+ *                    (v12 처럼 한 번 보내고 0.8초 눈감고 기다리지 않는다)
+ *    - 넘어짐 의심 : 즉시 키를 뗀다 → 메인보드가 걷기 반복을 멈추고
+ *                    자이로 일어나기를 할 수 있게 된다.
+ *  USE_HOLD_KEYS = 0 이면 v12 방식 (턴 한 번 보내고 기다리기).
+ *  ────────────────────────────────────────────────────────────────────── */
+#define USE_HOLD_KEYS       1
+
+/*  누르고 있는 동안 같은 키를 몇 ms 마다 다시 보낼지.
+ *  메인보드가 "뗐다" 고 판단하는 시간보다 짧아야 한다.
+ *  (300 으로 계속 걸었으므로 300 은 안전하다.  더 부드럽게 하려면 150)  */
 #define WALK_KEY_MS       300
+
+/*  전진턴 키를 누르고 있을 때 앞으로 가는 빠르기 (mm/초)
+ *  전진턴을 10초 누르고 있게 해서, 출발점에서 얼마나 앞으로 갔는지 / 10  */
+#define TURN_FWD_SPEED    100
+
+/*  전진턴을 그만둘 빗나감 (mm).  LANE_MM 을 넘으면 턴 시작 → 이 안으로 오면 직진  */
+#define STEER_OFF_MM     (LANE_MM / 4)
+
+/*  찾기 1단계에서 전진턴을 누르고 있을 최대 시간 (ms).  2단계는 이 2배.
+ *  전진턴을 누르고 있을 때 60도쯤 도는 시간을 재서 넣는다.  */
+#define SEEK_TURN_MS     2500UL
+
+/*  눈감은 거리를 다 써서 제자리 턴으로 찾을 때, 한 방향으로 최대 몇 번  */
+#define SEEK_SPIN_N         6
 
 
 /*  ── 로봇이 보내주는 소식 (자이로) ────────────────────────────────────
@@ -510,8 +553,9 @@
  *        - 없으면                →  선다.  (트랙 밖으로 나가는 것보다 낫다)
  *   ⑤ 찾기에 실패해도 v12 처럼 "눈감고 직진" 하지 않는다.
  *
- *  ★ 직접 재서 넣을 것 : TURN_STEP_MM
+ *  ★ 직접 재서 넣을 것 : TURN_STEP_MM  (USE_HOLD_KEYS = 0 일 때)
  *     전진턴을 10번 보내고, 로봇이 앞으로 간 거리를 줄자로 재서 / 10
+ *     USE_HOLD_KEYS = 1 이면 대신 TURN_FWD_SPEED / SEEK_TURN_MS 를 쓴다.
  *  ────────────────────────────────────────────────────────────────────── */
 #define TURN_STEP_MM       60     // 전진턴 한 번에 앞으로 가는 거리 (mm)
 #define BLIND_MAX_MM      500     // 패치를 못 보고 이만큼 넘게 가면 전진턴 금지
@@ -713,6 +757,11 @@ bool     g_seekFromHold = false;
 uint32_t g_straightUntil = 0;     // 이 시각까지 턴 없이 직진 (가운데서 놓친 경우)
 long     g_blindMm  = 0;          // 패치를 마지막으로 제대로 본 뒤 앞으로 간 거리 (추정)
 bool     g_spinNow  = false;      // 이번 턴이 제자리 턴인가 (화면 표시용)
+int8_t   g_steer    = 0;          // 누르고 있는 전진턴 (+1 우 / -1 좌 / 0 직진)
+uint32_t g_heldKey  = 0;          // 지금 누르고 있는 키 (0 = 뗌)
+uint32_t g_heldTick = 0;
+long     g_blindAcc = 0;          // 눈감은 거리 계산 나머지 (mm x 1000)
+uint32_t g_seekUntil = 0;         // 이 시각까지 이 방향으로 전진턴
 
 /*  넘어짐  */
 uint32_t g_fallenMs    = 0;
@@ -1179,6 +1228,8 @@ void gotoState(uint8_t s)
   g_measDir   = 0;
   g_xBefore   = -1;
   g_fallSuspect = false;
+  g_steer     = 0;
+  g_spinNow   = false;
   avgReset();
 
   /*  주행에 들어가면 일단 안 걷는 상태로 시작한다.
@@ -1267,6 +1318,8 @@ void startSeek(bool fromHold)
   g_seekLimit     = seekLimit(g_seekDir);
   g_straightUntil = 0;
 
+  g_seekUntil     = millis() + SEEK_TURN_MS;
+
   if (midLoss) {
     g_straightUntil = millis() + LOST_STRAIGHT_MS;
     g_walking = true;
@@ -1276,11 +1329,16 @@ void startSeek(bool fromHold)
   Serial.print(F("   패치를 놓쳤습니다. 마지막에 "));
   Serial.print((g_seekDir > 0) ? F("오른쪽") : F("왼쪽"));
   Serial.println(F(" 에 있었습니다."));
+#if (USE_HOLD_KEYS == 1)
+  Serial.print(F("   그쪽 전진턴을 최대 "));  Serial.print(SEEK_TURN_MS);
+  Serial.println(F("ms 누르고 찾습니다."));
+#else
   Serial.print(F("   그쪽으로 최대 "));  Serial.print(g_seekLimit);
   Serial.print(F("번 돌며 찾습니다.  (턴 1회 = 약 "));
   Serial.print((g_seekDir > 0) ? g_dxRight : g_dxLeft);
   Serial.print(F("픽셀"));
   Serial.println(g_dxKnown ? F(", 실측)") : F(", 아직 안 재봄)"));
+#endif
   Serial.print(F("   눈감은 거리 "));  Serial.print(g_blindMm);
   Serial.print(F(" / "));  Serial.print((long)BLIND_MAX_MM);  Serial.println(F("mm"));
 }
@@ -1639,8 +1697,10 @@ void runRun()
   //  턴 동작이 끝날 때까지는 아무것도 하지 않는다
   if (millis() < g_holdUntil) return;
 
-  //  가운데서 갑자기 사라졌다 -> 넘어졌는지 확인하는 동안은 찾기로 가지 않는다
-  if (g_fallSuspect && !g_seenNow) return;
+  //  갑자기 사라졌다 -> 넘어졌는지 확인하는 동안은 찾기로 가지 않는다.
+  //  키도 바로 뗀다.  누르고 있으면 메인보드가 걷기 반복을 계속해서
+  //  자이로 일어나기를 못 할 수 있다.
+  if (g_fallSuspect && !g_seenNow) { g_walking = false; g_steer = 0; return; }
 
   //  완전히 잃었다 -> 찾기로
   if (g_lostCnt >= LOST_N) { startSeek(false); return; }
@@ -1687,6 +1747,190 @@ void runRun()
   }
   g_turnCnt = 0;
 }
+
+
+#if (USE_HOLD_KEYS == 1)
+/* ==========================================================================
+ *  ② 주행  -  누르고 있기 방식 (v13)
+ *
+ *  카메라를 쉬지 않고 보면서
+ *    빗나감이 LANE_MM 을 넘으면       →  그쪽 전진턴 키를 누르고 있는다
+ *    빗나감이 STEER_OFF_MM 안으로 오면 →  전진키로 바꾼다 (턴 키를 뗀다)
+ *  멈추는 일 없이 계속 걸으며 방향을 고친다.
+ * ========================================================================== */
+
+void runRunHold()
+{
+  if (millis() < g_holdUntil) return;
+
+  if (g_fallSuspect && !g_seenNow) { g_walking = false; g_steer = 0; return; }
+  if (g_lostCnt >= LOST_N) { startSeek(false); return; }
+
+  g_walking = true;
+
+  //  화면 끝에 걸쳤다 : 거리는 못 믿지만 방향은 확실하다
+  if (!g_valid && g_edge != 0) {
+    if (g_bw >= pixy.frameWidth / 2) {
+      Serial.println(F("   패치가 코앞입니다 - 마무리로"));
+      startFinish(CROSS_MM, false);
+      return;
+    }
+    if (g_steer != g_edge) {
+      Serial.print(F(">> 화면 "));
+      Serial.print((g_edge > 0) ? F("오른쪽") : F("왼쪽"));
+      Serial.println(F(" 끝에 걸침 - 그쪽 전진턴 누름"));
+    }
+    g_steer = g_edge;
+    return;
+  }
+
+  if (!g_valid) return;             // 측정 중 : 하던 것 그대로
+
+  if (g_dist <= FINISH_MM) {
+    Serial.print(F("   결승선 도달 "));  Serial.print(g_dist);  Serial.println(F("mm"));
+    startFinish(CROSS_MM, false);
+    return;
+  }
+
+  int8_t want = g_steer;
+  if (g_steer == 0) {
+    if (myAbs(g_err) > (long)LANE_MM) want = (g_err > 0) ? +1 : -1;
+  } else {
+    /*  가운데로 왔거나, 반대쪽으로 넘어가 버렸으면 턴 키를 뗀다  */
+    if (myAbs(g_err) <= (long)STEER_OFF_MM || ((g_err > 0) != (g_steer > 0))) want = 0;
+  }
+
+  if (want != g_steer) {
+    if (want > 0)      Serial.print(F(">> 전진우턴 누름  (빗나감 "));
+    else if (want < 0) Serial.print(F(">> 전진좌턴 누름  (빗나감 "));
+    else               Serial.print(F(">> 턴 뗌 - 직진  (빗나감 "));
+    Serial.print(g_err);  Serial.println(F("mm)"));
+    g_steer = want;
+  }
+}
+
+
+/* ==========================================================================
+ *  ③ 찾기  -  누르고 있기 방식 (v13)
+ *
+ *   0단계 : 화면 가운데서 놓쳤으면 잠깐 직진
+ *   1단계 : 마지막에 본 쪽 전진턴을 누르고 있는다 (최대 SEEK_TURN_MS)
+ *   2단계 : 반대쪽 전진턴을 누르고 있는다 (최대 SEEK_TURN_MS x 2)
+ *   보이는 순간 바로 주행으로.  (턴 중에도 카메라를 본다)
+ *
+ *   눈감은 거리가 BLIND_MAX_MM 을 넘으면 전진턴은 금지.
+ *     → 제자리 턴으로 같은 단계를 이어서 찾는다 (USE_SPIN_KEY = 1)
+ *     → 제자리 턴이 없으면 선다
+ *   다 실패해도 눈감고 직진하지 않고 선다.
+ * ========================================================================== */
+
+void seekNextPhase()
+{
+  g_seekPhase = 2;
+  g_seekDir   = -g_seekDir;
+  g_seekCnt   = 0;
+  g_seekUntil = millis() + SEEK_TURN_MS * 2UL;
+  Serial.print(F("   그쪽엔 없습니다. 반대("));
+  Serial.print((g_seekDir > 0) ? F("오른쪽") : F("왼쪽"));
+  Serial.println(F(")로 훑습니다."));
+}
+
+void runSeekHold()
+{
+  if (g_seenNow) {
+    if (++g_seeCnt >= SEEK_CONFIRM_N) {
+      Serial.println(F("   패치를 다시 찾았습니다 - 주행 복귀"));
+      uint32_t keep = g_holdUntil;      // 보내 둔 제자리 턴은 끝까지 기다린다
+      gotoState(ST_RUN);
+      g_holdUntil = keep;
+    }
+    return;
+  }
+  g_seeCnt = 0;
+
+  /*  0단계 : 직진  */
+  if (g_straightUntil) {
+    if (millis() < g_straightUntil && !blindFull()) return;
+    g_straightUntil = 0;
+    g_seekUntil = millis() + SEEK_TURN_MS;
+    Serial.println(F("   직진으로는 안 보입니다 - 전진턴을 누르고 찾습니다"));
+  }
+
+  if (millis() < g_holdUntil) return;
+
+  /*  1, 2단계 : 전진턴을 누르고 있기  */
+  if (!blindFull()) {
+    g_walking = true;
+    g_steer   = g_seekDir;
+    if (millis() < g_seekUntil) return;
+    if (g_seekPhase == 1) { seekNextPhase(); g_steer = g_seekDir; return; }
+    g_steer = 0;
+    enterHold(F("패치 못 찾음 - 트랙을 벗어나지 않도록 섭니다"));
+    return;
+  }
+
+  /*  눈감은 거리 초과 : 더 앞으로 가면 안 된다  */
+  g_steer   = 0;
+  g_walking = false;
+#if (USE_SPIN_KEY == 1)
+  if (g_seekCnt >= ((g_seekPhase == 1) ? SEEK_SPIN_N : SEEK_SPIN_N * 2)) {
+    if (g_seekPhase == 1) { seekNextPhase(); return; }
+    enterHold(F("패치 못 찾음 - 트랙을 벗어나지 않도록 섭니다"));
+    return;
+  }
+  sendMotion((g_seekDir > 0) ? KEY_SPIN_RIGHT : KEY_SPIN_LEFT, false);
+  g_spinNow = true;
+  g_seekCnt++;
+  g_holdUntil = millis() + TURN_WAIT_MS;
+#else
+  Serial.print(F("   눈감은 거리 "));  Serial.print(g_blindMm);
+  Serial.println(F("mm - 더 가면 트랙을 벗어날 수 있습니다"));
+  enterHold(F("눈감은 거리 초과 (제자리 턴 키 없음)"));
+#endif
+}
+
+
+/* ==========================================================================
+ *  키 내보내기  -  조종기처럼 누르기 / 누르고 있기 / 떼기 (v13)
+ *
+ *  상태를 보고 "지금 누르고 있어야 할 키" 를 정한다.
+ *    바뀌었으면 바로 보낸다 (누르기)
+ *    같으면 WALK_KEY_MS 마다 다시 보낸다 (누르고 있기)
+ *    없으면 안 보낸다 (떼기)
+ *  누르고 있던 시간만큼 눈감은 거리를 더한다.
+ *  ※ 여기에 delay() 를 넣으면 안 된다.
+ * ========================================================================== */
+
+void serviceKeys()
+{
+  uint32_t now  = millis();
+  uint32_t want = 0;
+
+  if ((g_state == ST_RUN || g_state == ST_FINISH || g_state == ST_SEEK) && now >= g_holdUntil) {
+    if      (g_steer > 0) want = KEY_RIGHT;
+    else if (g_steer < 0) want = KEY_LEFT;
+    else if (g_walking)   want = KEY_FORWARD;
+  }
+
+  /*  눈감은 거리 : 누르고 있던 키의 빠르기 x 시간  */
+  if (g_heldKey != 0) {
+    uint32_t dt = now - g_heldTick;
+    if (dt > 1000) dt = 1000;
+    g_blindAcc += (long)((g_heldKey == KEY_FORWARD) ? WALK_SPEED : TURN_FWD_SPEED) * (long)dt;
+    g_blindMm  += g_blindAcc / 1000L;
+    g_blindAcc %= 1000L;
+  }
+  g_heldTick = now;
+
+  if (want == 0) { g_heldKey = 0; return; }                 // 떼기
+
+  if (want != g_heldKey || now - g_lastSendMs >= WALK_KEY_MS) {
+    g_heldKey    = want;
+    g_lastSendMs = now;
+    sendMotion(want, false);                                // 누르기 / 누르고 있기
+  }
+}
+#endif
 
 
 /* ==========================================================================
@@ -1886,7 +2130,15 @@ void printRun()
       } else {
         Serial.print((g_seekDir > 0) ? F("오른쪽") : F("왼쪽"));
         Serial.print(g_spinNow ? F("으로 제자리턴  ") : F("으로 전진턴  "));
+#if (USE_HOLD_KEYS == 1)
+        if (g_spinNow) { Serial.print(g_seekCnt);  Serial.print(F("회")); }
+        else {
+          long left = (long)(g_seekUntil - millis());
+          Serial.print(F("남은 "));  Serial.print(left < 0 ? 0 : left);  Serial.print(F("ms"));
+        }
+#else
         Serial.print(g_seekCnt);  Serial.print('/');  Serial.print(g_seekLimit);
+#endif
         Serial.print(F("  ("));  Serial.print(g_seekPhase);  Serial.print(F("단계)"));
       }
       Serial.print(F("  눈감은 거리 "));  Serial.print(g_blindMm);
@@ -1913,7 +2165,9 @@ void printRun()
         Serial.print(F("거리 "));      Serial.print(g_dist);
         Serial.print(F("mm  빗나감 "));Serial.print(g_err);
         Serial.print(F("mm  "));
-        Serial.println(g_walking ? F("전진") : F("정렬"));
+        if      (g_steer > 0) Serial.println(F("전진우턴"));
+        else if (g_steer < 0) Serial.println(F("전진좌턴"));
+        else                  Serial.println(g_walking ? F("전진") : F("정렬"));
       } else if (g_edge != 0) {
         Serial.print(F("화면 "));
         Serial.print((g_edge > 0) ? F("오른쪽") : F("왼쪽"));
@@ -2043,12 +2297,23 @@ void setup()
   Serial.print(F("더 갈 거리  : "));    Serial.print((long)CROSS_MM);   Serial.println(F("mm"));
   Serial.print(F("패치 여유   : "));    Serial.print((long)FINISH_MM - (long)CROSS_MM);
   Serial.println(F("mm  (300 이상이면 안전)"));
-  Serial.print(F("눈감은 거리 : 최대 "));  Serial.print((long)BLIND_MAX_MM);
-  Serial.print(F("mm  (전진턴 1회 "));     Serial.print((long)TURN_STEP_MM);
-#if (USE_SPIN_KEY == 1)
-  Serial.println(F("mm, 넘으면 제자리턴)"));
+#if (USE_HOLD_KEYS == 1)
+  Serial.println(F("키 보내기   : 누르고 있기 / 떼기 (조종기 방식)"));
 #else
-  Serial.println(F("mm, 넘으면 섬)"));
+  Serial.println(F("키 보내기   : 한 번 보내고 기다리기 (v12 방식)"));
+#endif
+  Serial.print(F("눈감은 거리 : 최대 "));  Serial.print((long)BLIND_MAX_MM);
+#if (USE_HOLD_KEYS == 1)
+  Serial.print(F("mm  (전진턴 누르는 동안 "));  Serial.print((long)TURN_FWD_SPEED);
+  Serial.print(F("mm/초"));
+#else
+  Serial.print(F("mm  (전진턴 1회 "));     Serial.print((long)TURN_STEP_MM);
+  Serial.print(F("mm"));
+#endif
+#if (USE_SPIN_KEY == 1)
+  Serial.println(F(", 넘으면 제자리턴)"));
+#else
+  Serial.println(F(", 넘으면 섬)"));
 #endif
   Serial.print(F("다시출발    : 패치가 "));  Serial.print((long)RESTART_MM);
   Serial.println(F("mm 보다 멀리 보이면"));
@@ -2096,14 +2361,23 @@ void loop()
 
   switch (g_state) {
     case ST_WAIT:   runWait();    break;
+#if (USE_HOLD_KEYS == 1)
+    case ST_RUN:    runRunHold();  break;
+    case ST_SEEK:   runSeekHold(); break;
+#else
     case ST_RUN:    runRun();     break;
     case ST_SEEK:   runSeek();    break;
+#endif
     case ST_FINISH: runFinish();  break;
     case ST_FALLEN: runFallen();  break;
     case ST_HOLD:   runHold();    break;
   }
 
+#if (USE_HOLD_KEYS == 1)
+  serviceKeys();
+#else
   serviceWalk();
+#endif
 
   if (g_state == ST_WAIT) printWait();
   else                    printRun();
