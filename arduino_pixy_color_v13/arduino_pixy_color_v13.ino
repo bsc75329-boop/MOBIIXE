@@ -426,22 +426,32 @@
  *
  *  [ 방법 A ]  카메라로 알아채기     USE_CAM_FALL = 1   (부품 추가 없음, 기본)
  *
- *    로봇이 걷거나 턴할 때 패치는 화면에서 "좌우" 로만 움직인다.
- *    그래서 정상적으로 패치를 놓칠 때는 반드시 화면 "좌/우 끝" 으로 빠진다.
+ *    ※ "가운데" 는 로봇이 트랙 어디에 있느냐가 아니라
+ *      "패치가 카메라 화면 어디에 있느냐" 다.  로봇은 트랙 어디서 넘어져도 된다.
  *
- *    넘어질 때는 카메라가 앞/뒤로 꺾이며 바닥이나 천장을 향한다.
- *    이때 패치는
- *       - 화면 "가운데" 에서 한순간에 사라지거나
- *       - 화면 "위/아래 끝" 으로 빠져나간다     →  둘 다 넘어짐으로 본다.
+ *    정상적으로 패치를 놓칠 때 (걷다 방향이 틀어짐 / 턴)
+ *       - 패치가 화면에서 "천천히 좌우로" 흘러가다가
+ *       - 먼저 좌/우 끝에 "걸쳤다가" 빠져나간다.
  *
- *       가운데에서 갑자기 사라짐 → FALL_CONFIRM_MS 동안 계속 안 보임
- *          → "넘어짐" 확정 → 키를 끊고 GETUP_MS 동안 조용히 기다림
- *          → 패치가 보이면 바로 주행, 안 보이면 찾기 (못 찾으면 서서 기다림)
+ *    넘어질 때
+ *       - 카메라가 순식간에 꺾이므로 패치가 화면에서 "아주 빠르게" 움직이거나
+ *       - 끝에 걸치는 과정 없이 화면 "어디서든" 한순간에 사라진다.
+ *         (위/아래로 빠지는 것도 여기 들어간다)
  *
- *    ※ 잠깐 깜빡인 것(조명, 앞을 지나간 손)은 FALL_CONFIRM_MS 안에 다시
- *       보이므로 넘어짐으로 치지 않는다.
- *    ※ 옆으로 쓰러지면 패치가 화면 가운데 그대로 남을 수 있어 못 알아챈다.
- *       그때는 로봇 펌웨어가 일어나는 중 키를 무시해 주어야 한다.
+ *    그래서 패치가 화면 어디에 있었든, 아래 둘 중 하나면 넘어짐을 의심한다.
+ *       ①  좌/우 끝에 걸치지 않은 채로 갑자기 사라졌다
+ *       ②  사라지기 직전 화면 속 움직임이 FALL_SPEED_PX 보다 빨랐다
+ *           (턴은 초당 수십 픽셀,  넘어짐은 초당 수백 픽셀)
+ *
+ *       의심 → FALL_CONFIRM_MS 동안 계속 안 보임 → "넘어짐" 확정
+ *          → 키를 끊고 기다림 → 패치가 STAND_SEE_MS 동안 계속 보이거나
+ *            GETUP_MS 가 지나면 복귀 (보이면 주행, 안 보이면 찾기)
+ *
+ *    ※ 일어나는 것은 언제나 메인보드가 자이로로 알아서 한다.
+ *       아두이노가 넘어짐을 아는 것은 "그동안 키를 안 보내고,
+ *       일어난 뒤 방향을 다시 잡기" 위해서다.
+ *    ※ 패치가 이미 안 보이던 중 (찾기, 마무리) 에 넘어지면 카메라로는 모른다.
+ *       어느 순간이든 알려면 방법 B (MPU6050) 가 필요하다.
  *
  *  [ 방법 B ]  MPU6050 기울기 센서   USE_IMU_FALL = 1   (선택, 부품 추가)
  *
@@ -470,7 +480,8 @@
 #define GETUP_MS        9000UL
 
 /*  카메라 짐작에 쓰는 값  */
-#define FALL_CENTER_PX     90     // 중심에서 이 안쪽에 있던 패치가 사라지면 의심
+#define FALL_CENTER_PX     90     // 찾기 : 중심 이 안쪽에서 놓쳤으면 턴 없이 잠깐 직진
+#define FALL_SPEED_PX     400     // 화면 속 패치가 초당 이 픽셀보다 빨리 움직이면 넘어짐 의심
 #define FALL_GONE_MS      150UL   // 마지막으로 본 지 이 시간 안에 사라져야 "갑자기"
 #define FALL_CONFIRM_MS   600UL   // 이만큼 계속 안 보이면 넘어짐으로 확정
 #define STAND_SEE_MS     1000UL   // 넘어짐 대기 중 패치가 이만큼 계속 보이면 바로 복귀
@@ -647,6 +658,7 @@ bool     g_lensSaved = false;     // 저장된 값을 쓰는 중인가
 
 bool     g_pixyOk    = false;
 bool     g_raceStarted = false;   // 한 번이라도 출발했는가
+bool     g_raceDone  = false;     // 완주(또는 사용자 정지)로 서 있는가
 bool     g_walking   = false;     // 전진키를 내보내는 중인가
 
 /*  카메라에서 읽은 것  */
@@ -711,6 +723,10 @@ bool     g_finishSaved = false;
 uint32_t g_lastSeenMs    = 0;     // 패치를 마지막으로 본 시각
 bool     g_lastSeenMid   = false; // 그때 패치가 화면 가운데 있었나
 bool     g_lastSeenVEdge = false; // 그때 패치가 화면 위/아래 끝에 걸쳐 있었나
+bool     g_lastSeenSide  = false; // 그때 패치가 화면 좌/우 끝에 걸쳐 있었나
+int16_t  g_lastSeenX = 0, g_lastSeenY = 0;
+int16_t  g_imgSpeed  = 0;         // 화면 속 패치가 움직이는 빠르기 (픽셀/초)
+int16_t  g_by        = 0;         // 병합한 패치의 중심 y
 bool     g_vEdge         = false; // 이번 장 패치가 위/아래 끝에 걸쳤나
 bool     g_fallSuspect   = false; // 가운데서 갑자기 사라졌다 (넘어짐 의심)
 uint32_t g_fallSuspectMs = 0;
@@ -987,6 +1003,7 @@ bool acquirePatch()
 
   g_bw = R - L;
   g_bx = (L + R) / 2;
+  g_by = (T + B) / 2;
 
   /*  화면 좌우로 잘렸는가.
    *
@@ -1065,7 +1082,11 @@ void noteLost()
   g_edge = 0;
 
 #if (CAM_FALL_ON == 1)
-  if (g_lostCnt == 1 && !g_fallSuspect && (g_lastSeenMid || g_lastSeenVEdge)
+  /*  화면 어디에 있었든 :
+   *    좌/우 끝에 걸치는 과정 없이 사라졌거나,  사라지기 직전 너무 빨리 움직였다  */
+  bool abrupt = !g_lastSeenSide || g_lastSeenVEdge || (g_imgSpeed >= FALL_SPEED_PX);
+
+  if (g_lostCnt == 1 && !g_fallSuspect && abrupt
       && (millis() - g_lastSeenMs) <= FALL_GONE_MS) {
     g_fallSuspect   = true;
     g_fallSuspectMs = millis();
@@ -1086,9 +1107,22 @@ void updateVision()
   g_lostCnt = 0;
   g_lastSide = (g_bx > g_centerX) ? +1 : -1;
 
-  g_lastSeenMs  = millis();
+  /*  화면 속 움직임 빠르기.  바로 앞 장과 비교한다 (턴 대기로 끊겼으면 0)  */
+  uint32_t dt = millis() - g_lastSeenMs;
+  if (g_lastSeenMs != 0 && dt > 0 && dt <= 120) {
+    long d = myAbs((long)g_bx - g_lastSeenX) + myAbs((long)g_by - g_lastSeenY);
+    long v = d * 1000L / (long)dt;
+    g_imgSpeed = (int16_t)((v > 30000L) ? 30000L : v);
+  } else {
+    g_imgSpeed = 0;
+  }
+  g_lastSeenX = g_bx;
+  g_lastSeenY = g_by;
+
+  g_lastSeenMs    = millis();
   g_lastSeenMid   = (g_edge == 0) && (myAbs((long)g_bx - g_centerX) <= FALL_CENTER_PX);
   g_lastSeenVEdge = g_vEdge;
+  g_lastSeenSide  = (g_edge != 0);
 
   /*  화면 끝에 걸쳤으면 거리는 못 쓴다.  방향만 남긴다.  */
   if (g_edge != 0) { avgReset(); return; }
@@ -1150,6 +1184,7 @@ void gotoState(uint8_t s)
   /*  주행에 들어가면 일단 안 걷는 상태로 시작한다.
    *  그러면 빗나감이 큰 경우 저절로 제자리 정렬부터 하게 된다.  */
   g_walking = (s == ST_FINISH);
+  if (s == ST_RUN) g_raceDone = false;
 
   Serial.print(F("\n===== "));  Serial.print(stateName());  Serial.println(F(" ====="));
 }
@@ -1269,7 +1304,7 @@ void enterFallen()
   g_standSeeMs = 0;
   Serial.println(F("   로봇이 넘어졌습니다. 일어날 때까지 아무 키도 안 보냅니다."));
   if (g_fallByCam) {
-    Serial.print(F("   (카메라 짐작 : 패치가 가운데/위아래로 갑자기 사라짐)  "));
+    Serial.print(F("   (카메라 짐작 : 패치가 화면 끝을 거치지 않고/빠르게 사라짐)  "));
     Serial.print(GETUP_MS / 1000);  Serial.println(F("초 기다립니다."));
   }
   if (g_finishSaved) {
@@ -1739,6 +1774,7 @@ void runFinish()
      *  눈감은 거리를 꽉 채워 두면 서 있는 동안 전진턴을 하지 않는다.  */
     if (g_blindMm < (long)BLIND_MAX_MM) g_blindMm = BLIND_MAX_MM;
     enterHold(F("주행 완료"));
+    g_raceDone = true;
   }
 }
 
@@ -1749,6 +1785,15 @@ void runFinish()
 
 void runHold()
 {
+  /*  경기 도중 (찾기 실패, 넘어졌다 일어남) 에 선 것이면
+   *  패치가 결승선보다 멀리 보이기만 해도 바로 이어서 달린다.  */
+  if (!g_raceDone && g_valid && g_dist > (long)FINISH_MM) {
+    Serial.print(F("\n   패치가 다시 보입니다 ("));  Serial.print(g_dist);
+    Serial.println(F("mm) - 경기를 이어갑니다"));
+    gotoState(ST_RUN);
+    return;
+  }
+
   /*  패치가 멀리 보인다 = 학생이 START 에 다시 놓았다 = 새 경기  */
   if (g_valid && g_dist >= (long)RESTART_MM) {
     Serial.print(F("\n*** 패치가 "));  Serial.print(g_dist);
@@ -1874,7 +1919,7 @@ void printRun()
         Serial.print((g_edge > 0) ? F("오른쪽") : F("왼쪽"));
         Serial.println(F(" 끝에 걸침"));
       } else if (g_fallSuspect) {
-        Serial.println(F("패치가 가운데서 갑자기 사라짐 - 넘어졌는지 확인 중"));
+        Serial.println(F("패치가 갑자기 사라짐 - 넘어졌는지 확인 중"));
       } else {
         Serial.print(F("패치 안 보임 ("));  Serial.print(g_lostCnt);
         Serial.print('/');  Serial.print(LOST_N);  Serial.println(F(")"));
@@ -1928,6 +1973,7 @@ void serviceSerial()
 
     } else if (c == 'h' || c == 'H') {
       enterHold(F("사용자 요청"));
+      g_raceDone = true;
 
     } else if (c == 'b' || c == 'B') {
       Serial.println(F("\n### 색 없이 직진 출발 ###"));
