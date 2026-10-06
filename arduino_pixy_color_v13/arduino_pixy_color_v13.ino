@@ -406,11 +406,22 @@
  *       ② 찾기가 다 실패한 걸로 쳐서
  *       ③ 엉뚱한 방향으로 "눈감고 직진" → 트랙 밖으로 나간다.
  *
- *  [ 방법 A ]  카메라로 알아채기     USE_CAM_FALL = 1   (부품 추가 없음)
+ *  [ 이 로봇의 구조 ]
+ *    아두이노 = 조종기.  색 인식과 판단을 모두 하고 키값만 메인보드로 보낸다.
+ *    메인보드 = 모터 + 자이로(넘어짐 확인, 스스로 일어나기) 만 한다.
+ *    통신은 아두이노 → 메인보드 한 방향뿐이라 메인보드의 자이로 값은
+ *    아두이노가 받을 수 없다.  (USE_ROBOT_FEEDBACK 은 0 그대로 둔다)
+ *    → 아두이노가 "카메라 화면만 보고" 넘어짐을 스스로 짐작해야 한다.
  *
- *    정상적으로 패치를 놓칠 때는  반드시 화면 "끝" 으로 빠져나간다.
- *    화면 "가운데" 있던 패치가 한순간에 사라지는 것은
- *    카메라가 갑자기 바닥/천장을 향했다는 뜻이다  =  넘어짐.
+ *  [ 방법 A ]  카메라로 알아채기     USE_CAM_FALL = 1   (부품 추가 없음, 기본)
+ *
+ *    로봇이 걷거나 턴할 때 패치는 화면에서 "좌우" 로만 움직인다.
+ *    그래서 정상적으로 패치를 놓칠 때는 반드시 화면 "좌/우 끝" 으로 빠진다.
+ *
+ *    넘어질 때는 카메라가 앞/뒤로 꺾이며 바닥이나 천장을 향한다.
+ *    이때 패치는
+ *       - 화면 "가운데" 에서 한순간에 사라지거나
+ *       - 화면 "위/아래 끝" 으로 빠져나간다     →  둘 다 넘어짐으로 본다.
  *
  *       가운데에서 갑자기 사라짐 → FALL_CONFIRM_MS 동안 계속 안 보임
  *          → "넘어짐" 확정 → 키를 끊고 GETUP_MS 동안 조용히 기다림
@@ -421,9 +432,11 @@
  *    ※ 옆으로 쓰러지면 패치가 화면 가운데 그대로 남을 수 있어 못 알아챈다.
  *       그때는 로봇 펌웨어가 일어나는 중 키를 무시해 주어야 한다.
  *
- *  [ 방법 B ]  MPU6050 기울기 센서   USE_IMU_FALL = 1   (가장 확실)
+ *  [ 방법 B ]  MPU6050 기울기 센서   USE_IMU_FALL = 1   (선택, 부품 추가)
  *
- *    아두이노에 MPU6050 (GY-521) 을 달고 기울기로 직접 판단한다.
+ *    메인보드 자이로 값은 못 받으므로, 아두이노 쪽에 MPU6050 (GY-521) 을
+ *    따로 하나 달아 기울기로 직접 판단하는 방법이다.
+ *    (아두이노가 로봇 몸에 실려 있을 때만 쓸 수 있다)
  *    앞/뒤/옆 어느 쪽으로 넘어져도, 마무리(눈감고 직진) 중이어도 안다.
  *    일어나서 똑바로 선 순간도 정확히 안다.
  *
@@ -436,8 +449,8 @@
  *    출발할 때(손을 뗄 때) 서 있는 자세를 "똑바로" 로 기억한다.
  *    센서를 어떤 방향으로 붙여도 된다. 단, 로봇 몸통에 단단히 고정할 것.
  *
- *  우선순위 :  로봇 소식(#F/#S)  >  MPU6050  >  카메라
- *              위의 것이 켜져 있으면 카메라 짐작은 저절로 꺼진다.
+ *  우선순위 :  MPU6050  >  카메라
+ *              MPU6050 을 켜면 카메라 짐작은 저절로 꺼진다.
  *  ────────────────────────────────────────────────────────────────────── */
 #define USE_CAM_FALL        1     // 1 = 카메라로 넘어짐 짐작
 #define USE_IMU_FALL        0     // 1 = MPU6050 으로 넘어짐 감지
@@ -654,6 +667,8 @@ bool     g_finishSaved = false;
 /*  넘어짐 감지 (v13)  */
 uint32_t g_lastSeenMs    = 0;     // 패치를 마지막으로 본 시각
 bool     g_lastSeenMid   = false; // 그때 패치가 화면 가운데 있었나
+bool     g_lastSeenVEdge = false; // 그때 패치가 화면 위/아래 끝에 걸쳐 있었나
+bool     g_vEdge         = false; // 이번 장 패치가 위/아래 끝에 걸쳤나
 bool     g_fallSuspect   = false; // 가운데서 갑자기 사라졌다 (넘어짐 의심)
 uint32_t g_fallSuspectMs = 0;
 bool     g_fallByCam     = false; // 카메라 짐작으로 넘어짐에 들어왔다
@@ -909,6 +924,10 @@ bool acquirePatch()
   else if (R >= pixy.frameWidth - 2)     g_edge = +1;   // 오른쪽에 걸침
   g_clipped = (g_edge != 0);
 
+  /*  위/아래 끝에 걸쳤는가.  걷기/턴으로는 패치가 위아래로 빠지지 않는다.
+   *  이렇게 빠져나가면 카메라가 앞뒤로 꺾인 것 = 넘어지는 중이다.  */
+  g_vEdge = (T <= 1) || (B >= (int16_t)pixy.frameHeight - 2);
+
   return (g_bw >= MIN_W);
 }
 
@@ -972,7 +991,7 @@ void noteLost()
   g_edge = 0;
 
 #if (CAM_FALL_ON == 1)
-  if (g_lostCnt == 1 && !g_fallSuspect && g_lastSeenMid
+  if (g_lostCnt == 1 && !g_fallSuspect && (g_lastSeenMid || g_lastSeenVEdge)
       && (millis() - g_lastSeenMs) <= FALL_GONE_MS) {
     g_fallSuspect   = true;
     g_fallSuspectMs = millis();
@@ -994,7 +1013,8 @@ void updateVision()
   g_lastSide = (g_bx > g_centerX) ? +1 : -1;
 
   g_lastSeenMs  = millis();
-  g_lastSeenMid = (g_edge == 0) && (myAbs((long)g_bx - g_centerX) <= FALL_CENTER_PX);
+  g_lastSeenMid   = (g_edge == 0) && (myAbs((long)g_bx - g_centerX) <= FALL_CENTER_PX);
+  g_lastSeenVEdge = g_vEdge;
 
   /*  화면 끝에 걸쳤으면 거리는 못 쓴다.  방향만 남긴다.  */
   if (g_edge != 0) { avgReset(); return; }
@@ -1161,7 +1181,7 @@ void enterFallen()
   g_fallenMs = millis();
   Serial.println(F("   로봇이 넘어졌습니다. 일어날 때까지 아무 키도 안 보냅니다."));
   if (g_fallByCam) {
-    Serial.print(F("   (카메라 짐작 : 가운데 있던 패치가 갑자기 사라짐)  "));
+    Serial.print(F("   (카메라 짐작 : 패치가 가운데/위아래로 갑자기 사라짐)  "));
     Serial.print(GETUP_MS / 1000);  Serial.println(F("초 기다립니다."));
   }
   if (g_finishSaved) {
