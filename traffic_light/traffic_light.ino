@@ -14,6 +14,8 @@
  *     STATUS : 현재 상태 표시
  *     HELP   : 명령어 목록
  *
+ * 화살표 PCB: 남은 시간 비율만큼 화살표가 켜지고 하나씩 줄어든다. 마지막 1초는 점멸.
+ *
  * 상태 표시 (1초마다)
  *   [수동] -----------------------------
  *   ▶ 빨간불  ON   남은 7초 / 유지 10초
@@ -37,6 +39,13 @@ const int  RED_PIN     = 4;                    // 빨간불 제어 핀 (트랜�
 const int  GREEN_PIN   = 5;                    // 초록불 제어 핀
 const bool ACTIVE_HIGH = true;                 // 릴레이 모듈이 LOW에서 동작하면 false
 
+// 화살표 PCB: 남은 시간을 화살표 개수로 표시 (pin_finder 로 찾은 번호 입력)
+// ARROW_PINS[0] 이 마지막까지 남는 화살표. 사용하지 않는 칸은 -1.
+// 화살표 전체가 선 1개로 묶여 있으면 첫 칸에만 번호를 넣으면 된다.
+const int  ARROW_PINS[]      = {-1, -1, -1, -1, -1};
+const bool ARROW_ACTIVE_HIGH = true;
+const uint32_t ARROW_BLINK_MS = 1000;          // 남은 시간이 이 값 이하이면 화살표 점멸
+
 const uint32_t AUTO_RED_MS   = 5000;
 const uint32_t AUTO_GREEN_MS = 5000;
 const uint32_t WIFI_TIMEOUT_MS = 15000;        // 공유기 연결 대기 후 AP 모드로 전환
@@ -51,6 +60,8 @@ Light    light = LIGHT_OFF;
 uint32_t phaseStart = 0;
 uint32_t phaseDuration = 0;                    // 0 = 시간 제한 없음
 uint32_t lastReport = 0;
+
+const int ARROW_COUNT = sizeof(ARROW_PINS) / sizeof(ARROW_PINS[0]);
 
 Net      net = NET_CONNECTING;
 uint32_t netStart = 0;
@@ -83,6 +94,31 @@ uint32_t remainingMs() {
   return elapsed >= phaseDuration ? 0 : phaseDuration - elapsed;
 }
 
+// 남은 시간 비율만큼 켜질 화살표 개수 (마지막 구간에서는 점멸)
+int arrowsLit() {
+  if (light == LIGHT_OFF) return 0;
+  if (phaseDuration == 0) return ARROW_COUNT;
+  uint32_t remain = remainingMs();
+  if (remain <= ARROW_BLINK_MS && (millis() / 250) % 2) return 0;
+  return (int)(((uint64_t)remain * ARROW_COUNT + phaseDuration - 1) / phaseDuration);
+}
+
+void updateArrows() {
+  int lit = arrowsLit();
+  for (int i = 0; i < ARROW_COUNT; i++) {
+    if (ARROW_PINS[i] < 0) continue;
+    bool on = i < lit;
+    digitalWrite(ARROW_PINS[i], (on == ARROW_ACTIVE_HIGH) ? HIGH : LOW);
+  }
+}
+
+String arrowBar() {
+  int lit = arrowsLit();
+  String s;
+  for (int i = ARROW_COUNT - 1; i >= 0; i--) s += i < lit ? "▶" : "▷";
+  return s;
+}
+
 String lightLine(Light which, const char* name) {
   bool on = (light == which);
   String s = on ? "▶ " : "  ";
@@ -103,6 +139,7 @@ void printStatus() {
   out(String(mode == MODE_AUTO ? "[자동]" : "[수동]") + " -----------------------------");
   out(lightLine(LIGHT_RED, "빨간불"));
   out(lightLine(LIGHT_GREEN, "초록불"));
+  out("  화살표  " + arrowBar());
   lastReport = millis();
 }
 
@@ -116,6 +153,7 @@ void setLight(Light l, uint32_t durationMs) {
   light = l;
   phaseStart = millis();
   phaseDuration = durationMs;
+  updateArrows();
   printStatus();
 }
 
@@ -238,6 +276,8 @@ body{font-family:sans-serif;background:#222;color:#eee;max-width:420px;margin:20
 .red.on{background:#ff2a2a;box-shadow:0 0 20px #ff2a2a}
 .green.on{background:#22e05a;box-shadow:0 0 20px #22e05a}
 .time{font-size:16px;color:#bbb}
+#bar{font-size:30px;letter-spacing:4px;color:#555}
+#bar.red{color:#ff2a2a}#bar.green{color:#22e05a}
 input,button{font-size:16px;padding:8px;margin:4px 0}
 input{width:80px}
 button{border:0;border-radius:6px;cursor:pointer}
@@ -247,6 +287,7 @@ button{border:0;border-radius:6px;cursor:pointer}
 <div>모드: <span id="mode">-</span></div>
 <div class="row"><span class="arrow" id="aR">▶</span><div class="lamp red" id="lR"></div><div>빨간불<br><span class="time" id="tR">OFF</span></div></div>
 <div class="row"><span class="arrow" id="aG">▶</span><div class="lamp green" id="lG"></div><div>초록불<br><span class="time" id="tG">OFF</span></div></div>
+<div>남은 시간 화살표: <span id="bar">▷▷▷▷▷</span></div>
 <hr>
 <div>유지 시간(초, 비우면 계속): <input id="sec" type="number" min="0.1" step="0.1" value="10"></div>
 <button style="background:#ff2a2a;color:#fff" onclick="send('R')">빨간불 ON</button>
@@ -265,6 +306,8 @@ function show(k,on,d){
 function poll(){fetch('/status').then(r=>r.json()).then(d=>{
   mode.textContent=d.mode=='AUTO'?'자동':'수동';
   show('R',d.light=='RED',d);show('G',d.light=='GREEN',d);
+  let b='';for(let i=d.arrowCount-1;i>=0;i--)b+=i<d.arrows?'▶':'▷';
+  bar.textContent=b;bar.className=d.light=='RED'?'red':d.light=='GREEN'?'green':'';
 }).catch(()=>{}).finally(()=>setTimeout(poll,300));}
 poll();
 </script></body></html>)HTML";
@@ -277,7 +320,9 @@ void startServers() {
     String json = String("{\"mode\":\"") + (mode == MODE_AUTO ? "AUTO" : "MANUAL") +
                   "\",\"light\":\"" + l +
                   "\",\"remain\":" + String(remainingMs() / 1000.0, 1) +
-                  ",\"duration\":" + String(phaseDuration / 1000.0, 1) + "}";
+                  ",\"duration\":" + String(phaseDuration / 1000.0, 1) +
+                  ",\"arrows\":" + String(arrowsLit()) +
+                  ",\"arrowCount\":" + String(ARROW_COUNT) + "}";
     web.send(200, "application/json", json);
   });
   web.begin();
@@ -326,6 +371,9 @@ void setup() {
   pinMode(GREEN_PIN, OUTPUT);
   writePin(RED_PIN, false);
   writePin(GREEN_PIN, false);
+  for (int i = 0; i < ARROW_COUNT; i++) {
+    if (ARROW_PINS[i] >= 0) pinMode(ARROW_PINS[i], OUTPUT);
+  }
 
   Serial.begin(115200);
 
@@ -346,6 +394,7 @@ void loop() {
   }
 
   updateLights();
+  updateArrows();
 
   if (millis() - lastReport >= 1000) printStatus();
 }
