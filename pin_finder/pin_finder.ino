@@ -11,10 +11,11 @@
  * - Tools > USB CDC On Boot : Enabled, 시리얼 모니터 115200 baud
  */
 
-// ESP32-C3에서 일반적으로 쓸 수 있는 핀 (18, 19는 USB라 제외)
-const int PINS[] = {0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 20, 21};
+// 기존 회로에서 트랜지스터 쪽으로 배선이 확인된 핀만 시험한다
+// (다른 핀까지 찾으려면 {0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 20, 21} 로 바꾼다. 18, 19는 USB라 제외)
+const int PINS[] = {3, 4, 5, 6};
 const int PIN_COUNT = sizeof(PINS) / sizeof(PINS[0]);
-const uint32_t ON_MS = 3000;
+const uint32_t ON_MS = 5000;
 const uint32_t GAP_MS = 1000;
 
 void setup() {
@@ -28,6 +29,8 @@ void setup() {
 }
 
 void loop() {
+  Serial.println(">> 모든 핀 LOW: 지금 켜져 있는 불이 있으면 적어두세요");
+  delay(ON_MS);
   for (int i = 0; i < PIN_COUNT; i++) {
     Serial.printf(">> GPIO %d HIGH (%d/%d)\n", PINS[i], i + 1, PIN_COUNT);
     digitalWrite(PINS[i], HIGH);
